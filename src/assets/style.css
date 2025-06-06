@@ -1,0 +1,24 @@
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+@keyframes flicker {
+  0%, 100% { border-color: #ff4444; }
+  50% { border-color: #ff0000; }
+}
+
+.animate-flicker {
+  animation: flicker 0.5s infinite;
+}
+
+@keyframes flow {
+  0% { stroke-dashoffset: 15; }
+  100% { stroke-dashoffset: 0; }
+}
+
+.animate-flow {
+  animation: flow linear infinite;
+}
