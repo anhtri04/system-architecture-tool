@@ -3,7 +3,7 @@ html, body, #root {
   width: 100vw;
   margin: 0;
   padding: 0;
-  overflow: auto;
+  overflow: hidden;
 }
 
 @keyframes flicker {
@@ -21,11 +21,40 @@ html, body, #root {
 }
 
 .animate-flow {
-  animation: flow linear infinite;
+  animation: flow 1s linear infinite;
 }
 
 /* Ensure toolbar doesn't overlap content */
 body {
   padding-top: 56px;
   min-height: 100vh;
+  box-sizing: border-box;
+}
+
+/* Ensure whiteboard container scrolls correctly */
+.whiteboard-container {
+  overflow: auto;
+  position: relative;
+  width: 100%;
+  height: calc(100vh - 56px);
+}
+
+/* Welcome page button hover effects */
+button:hover, label:hover {
+  transform: translateY(-1px);
+}
+
+/* Ensure welcome page has proper overflow */
+.min-h-screen {
+  overflow-y: auto;
+}
+
+/* Ensure SVG elements don't interfere with mouse events */
+svg {
+  pointer-events: none;
+}
+
+/* Allow SVG children to receive events if needed */
+svg > * {
+  pointer-events: auto;
 }

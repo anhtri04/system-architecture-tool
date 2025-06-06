@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { Calculator, ArrowRight, Trash2, Menu, ZoomIn, ZoomOut, Download, Upload, MoreVertical } from 'lucide-react';
+import { Calculator, ArrowRight, Trash2, Menu, ZoomIn, ZoomOut, Download, Upload, MoreVertical, Undo2, Redo2 } from 'lucide-react';
 import ComponentPalette from '../components/ComponentPalette.jsx';
 import ConnectionsList from '../components/ConnectionsList.jsx';
 import PropertiesPanel from '../components/PropertiesPanel.jsx';
@@ -36,9 +36,64 @@ const Home = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [zoomLevel, setZoomLevel] = useState(1);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [diagramName, setDiagramName] = useState('Untitled-Diagram');
+  const [history, setHistory] = useState([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+  const [clipboard, setClipboard] = useState([]); // For copy-paste
   const whiteboardRef = useRef(null);
   const nextIdRef = useRef(1);
-  const toolbarHeight = 56; // Fixed toolbar height in pixels
+  const toolbarHeight = 56;
+
+  useEffect(() => {
+    const initialDiagram = localStorage.getItem('initialDiagram');
+    if (initialDiagram) {
+      try {
+        const diagram = JSON.parse(initialDiagram);
+        setComponents(diagram.components);
+        setConnections(diagram.connections);
+        nextIdRef.current = diagram.nextId;
+        setDiagramName(diagram.name || 'Untitled-Diagram');
+        setHistory([{ components: diagram.components, connections: diagram.connections, nextId: diagram.nextId }]);
+        setHistoryIndex(0);
+        localStorage.removeItem('initialDiagram');
+      } catch (err) {
+        console.error('Error loading initial diagram:', err);
+      }
+    }
+  }, []);
+
+  const saveHistory = useCallback(() => {
+    setHistory((prev) => {
+      const newHistory = prev.slice(0, historyIndex + 1);
+      newHistory.push({ components, connections, nextId: nextIdRef.current });
+      return newHistory.slice(-50);
+    });
+    setHistoryIndex((prev) => prev + 1);
+  }, [components, connections, historyIndex]);
+
+  const undo = () => {
+    if (historyIndex > 0) {
+      const prevState = history[historyIndex - 1];
+      setComponents(prevState.components);
+      setConnections(prevState.connections);
+      nextIdRef.current = prevState.nextId;
+      setHistoryIndex((prev) => prev - 1);
+      setSelectedComponents([]);
+      setSelectedConnection(null);
+    }
+  };
+
+  const redo = () => {
+    if (historyIndex < history.length - 1) {
+      const nextState = history[historyIndex + 1];
+      setComponents(nextState.components);
+      setConnections(nextState.connections);
+      nextIdRef.current = nextState.nextId;
+      setHistoryIndex((prev) => prev + 1);
+      setSelectedComponents([]);
+      setSelectedConnection(null);
+    }
+  };
 
   const addComponent = (type) => {
     const newComponent = {
@@ -64,6 +119,7 @@ const Home = () => {
       },
     };
     setComponents((prev) => [...prev, newComponent]);
+    saveHistory();
   };
 
   const addConnection = (fromId, toId, metrics = {}) => {
@@ -80,6 +136,7 @@ const Home = () => {
       },
     };
     setConnections((prev) => [...prev, newConnection]);
+    saveHistory();
   };
 
   const handleMouseDown = useCallback(
@@ -170,9 +227,12 @@ const Home = () => {
   );
 
   const handleMouseUp = useCallback(() => {
+    if (draggedItems.length > 0) {
+      saveHistory();
+    }
     setDraggedItems([]);
     setDragOffsets({});
-  }, []);
+  }, [draggedItems, saveHistory]);
 
   useEffect(() => {
     if (draggedItems.length > 0) {
@@ -205,11 +265,33 @@ const Home = () => {
         )
       );
       setSelectedComponents([]);
+      saveHistory();
     }
     if (selectedConnection) {
       setConnections((prev) => prev.filter((conn) => conn.id !== selectedConnection));
       setSelectedConnection(null);
+      saveHistory();
     }
+  };
+
+  const copySelected = () => {
+    const selectedComps = components.filter((comp) => selectedComponents.includes(comp.id));
+    setClipboard(selectedComps.map((comp) => ({ ...comp, id: null }))); // Remove IDs for new components
+  };
+
+  const pasteComponents = () => {
+    if (clipboard.length === 0) return;
+
+    const newComponents = clipboard.map((comp) => ({
+      ...comp,
+      id: nextIdRef.current++,
+      x: comp.x + 20, // Offset to avoid overlap
+      y: comp.y + 20,
+    }));
+
+    setComponents((prev) => [...prev, ...newComponents]);
+    setSelectedComponents(newComponents.map((comp) => comp.id));
+    saveHistory();
   };
 
   useEffect(() => {
@@ -218,10 +300,22 @@ const Home = () => {
         e.preventDefault();
         deleteSelected();
       }
+      if (e.ctrlKey && e.key === 'z') {
+        e.preventDefault();
+        undo();
+      }
+      if (e.ctrlKey && e.key === 'c') {
+        e.preventDefault();
+        copySelected();
+      }
+      if (e.ctrlKey && e.key === 'v') {
+        e.preventDefault();
+        pasteComponents();
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedComponents, selectedConnection]);
+  }, [selectedComponents, selectedConnection, historyIndex, components, clipboard]);
 
   const updateComponentMetric = (ids, metric, value) => {
     setComponents((prev) =>
@@ -229,16 +323,19 @@ const Home = () => {
         ids.includes(comp.id) ? { ...comp, metrics: { ...comp.metrics, [metric]: value } } : comp
       )
     );
+    saveHistory();
   };
 
   const updateConnectionMetric = (id, metric, value) => {
     setConnections((prev) =>
       prev.map((conn) => (conn.id === id ? { ...conn, metrics: { ...conn.metrics, [metric]: value } } : conn))
     );
+    saveHistory();
   };
 
   const handleCalculateTraffic = () => {
     calculateTraffic(components, setComponents, connections, setConnections);
+    saveHistory();
   };
 
   const handleZoomIn = () => {
@@ -250,12 +347,12 @@ const Home = () => {
   };
 
   const handleDownload = () => {
-    const diagram = { components, connections, nextId: nextIdRef.current };
+    const diagram = { components, connections, nextId: nextIdRef.current, name: diagramName };
     const blob = new Blob([JSON.stringify(diagram, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'system-diagram.json';
+    a.download = `${diagramName || 'system-diagram'}.json`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -275,6 +372,9 @@ const Home = () => {
         setComponents(diagram.components);
         setConnections(diagram.connections);
         nextIdRef.current = diagram.nextId;
+        setDiagramName(diagram.name || 'Untitled-Diagram');
+        setHistory([{ components: diagram.components, connections: diagram.connections, nextId: diagram.nextId }]);
+        setHistoryIndex(0);
       } catch (err) {
         alert('Error loading diagram: ' + err.message);
       }
@@ -292,7 +392,30 @@ const Home = () => {
         >
           <Menu className="w-5 h-5 text-gray-700" />
         </button>
+        <input
+          type="text"
+          value={diagramName}
+          onChange={(e) => setDiagramName(e.target.value)}
+          className="px-2 py-1 border border-gray-300 rounded-md text-sm mr-4"
+          placeholder="Diagram Name"
+        />
         <div className="flex items-center gap-1 hidden md:flex">
+          <button
+            onClick={undo}
+            className="p-2 rounded hover:bg-gray-100 text-gray-700 disabled:text-gray-400"
+            title="Undo"
+            disabled={historyIndex <= 0}
+          >
+            <Undo2 className="w-5 h-5" />
+          </button>
+          <button
+            onClick={redo}
+            className="p-2 rounded hover:bg-gray-100 text-gray-700 disabled:text-gray-400"
+            title="Redo"
+            disabled={historyIndex >= history.length - 1}
+          >
+            <Redo2 className="w-5 h-5" />
+          </button>
           <button
             onClick={() => {
               setConnectionMode(!connectionMode);
@@ -317,6 +440,7 @@ const Home = () => {
           >
             <ZoomIn className="w-5 h-5" />
           </button>
+          <span className="text-sm text-gray-600">{`${Math.round(zoomLevel * 100)}%`}</span>
           <button
             onClick={handleZoomOut}
             className="p-2 rounded hover:bg-gray-100 text-gray-700"
@@ -357,6 +481,28 @@ const Home = () => {
             <div className="absolute top-14 right-4 bg-white border border-gray-200 rounded-lg shadow-lg z-30">
               <button
                 onClick={() => {
+                  undo();
+                  setIsMobileMenuOpen(false);
+                }}
+                className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                disabled={historyIndex <= 0}
+              >
+                <Undo2 className="w-4 h-4" />
+                Undo
+              </button>
+              <button
+                onClick={() => {
+                  redo();
+                  setIsMobileMenuOpen(false);
+                }}
+                className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                disabled={historyIndex >= history.length - 1}
+              >
+                <Redo2 className="w-4 h-4" />
+                Redo
+              </button>
+              <button
+                onClick={() => {
                   setConnectionMode(!connectionMode);
                   setConnectionStart(null);
                   setIsMobileMenuOpen(false);
@@ -386,6 +532,9 @@ const Home = () => {
                 <ZoomIn className="w-4 h-4" />
                 Zoom In
               </button>
+              <div className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-600">
+                {`${Math.round(zoomLevel * 100)}%`}
+              </div>
               <button
                 onClick={() => {
                   handleZoomOut();
@@ -406,7 +555,7 @@ const Home = () => {
                 <Download className="w-4 h-4" />
                 Download Diagram
               </button>
-              <label className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 cursor-pointer">
+              <label className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 cursor-pointer">
                 <Upload className="w-4 h-4" />
                 Upload Diagram
                 <input
@@ -437,7 +586,7 @@ const Home = () => {
       </div>
 
       {/* Main Content */}
-      <div className="flex flex-col md:flex-row w-full h-[calc(100vh-56px)]">
+      <div className="flex flex-col md:flex-row w-full" style={{ height: `calc(100vh - ${toolbarHeight}px)` }}>
         <div
           className={`w-full md:w-80 bg-white shadow-lg border-r border-gray-200 flex flex-col transition-transform duration-300 ${
             isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
@@ -446,7 +595,7 @@ const Home = () => {
           <div className="p-4 border-b border-gray-200">
             <h1 className="text-xl font-bold text-gray-800 flex items-center gap-2">
               <Calculator className="w-5 h-5" />
-              System Design Tool
+              {diagramName || 'System Design Tool'}
             </h1>
           </div>
           <ComponentPalette componentTypes={componentTypes} addComponent={addComponent} />
@@ -458,6 +607,7 @@ const Home = () => {
             deleteConnection={(id) => {
               setConnections((prev) => prev.filter((conn) => conn.id !== id));
               setSelectedConnection(null);
+              saveHistory();
             }}
           />
           <PropertiesPanel
@@ -469,7 +619,7 @@ const Home = () => {
             updateConnectionMetric={updateConnectionMetric}
           />
         </div>
-        <div className="flex-1 min-w-0 h-full">
+        <div className="flex-1 min-w-0" style={{ height: `calc(100vh - ${toolbarHeight}px)` }}>
           <Whiteboard
             components={components}
             connections={connections}

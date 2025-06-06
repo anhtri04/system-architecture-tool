@@ -1,4 +1,6 @@
 import React, { Component } from 'react';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import Welcome from './pages/Welcome.jsx';
 import Home from './pages/Home.jsx';
 
 class ErrorBoundary extends Component {
@@ -32,9 +34,12 @@ class ErrorBoundary extends Component {
 const App = () => {
   return (
     <ErrorBoundary>
-      <div className="w-full h-screen bg-gray-50 flex">
-        <Home />
-      </div>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<Welcome />} />
+          <Route path="/design" element={<Home />} />
+        </Routes>
+      </BrowserRouter>
     </ErrorBoundary>
   );
 };

@@ -82,22 +82,38 @@ const Whiteboard = ({
     }
   }, [selectionRect, components, setSelectedComponents]);
 
+  // Calculate dynamic dimensions to accommodate zoom
+  const whiteboardWidth = 2000;
+  const whiteboardHeight = 1500;
+  const scaledWidth = whiteboardWidth * zoomLevel;
+  const scaledHeight = whiteboardHeight * zoomLevel;
+
   return (
-    <div className="flex-1 min-w-0 min-h-full bg-gray-100 relative overflow-auto">
+    <div
+      className="flex-1 min-w-0 bg-gray-100 relative overflow-auto"
+      style={{ height: `calc(100vh - ${toolbarHeight}px)` }}
+    >
       <div
         ref={whiteboardRef}
-        className="w-full h-full relative bg-white select-none"
-        onMouseDown={handleMouseDownOnWhiteboard}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
+        className="relative bg-white select-none"
         style={{
+          width: `${whiteboardWidth}px`,
+          height: `${whiteboardHeight}px`,
           transform: `scale(${zoomLevel})`,
           transformOrigin: 'top left',
           backgroundImage: `radial-gradient(circle, #e5e7eb ${1 / zoomLevel}px, transparent ${1 / zoomLevel}px)`,
           backgroundSize: `${20 / zoomLevel}px ${20 / zoomLevel}px`,
+          minWidth: `${scaledWidth}px`,
+          minHeight: `${scaledHeight}px`,
         }}
+        onMouseDown={handleMouseDownOnWhiteboard}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
       >
-        <svg className="absolute inset-0 w-full h-full" style={{ zIndex: 0 }}>
+        <svg
+          className="absolute inset-0"
+          style={{ width: `${whiteboardWidth}px`, height: `${whiteboardHeight}px`, zIndex: 0 }}
+        >
           <defs>
             <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
               <polygon points="0 0, 10 3.5, 0 7" fill="#4b7280" />
@@ -121,9 +137,10 @@ const Whiteboard = ({
               y={Math.min(selectionRect.startY, selectionRect.endY)}
               width={Math.abs(selectionRect.endX - selectionRect.startX)}
               height={Math.abs(selectionRect.endY - selectionRect.startY)}
-              fill="rgba(59, 130, 246, 0.2)"
+              fill="rgba(59, 130, 246, 0.3)"
               stroke="#3b82f6"
-              strokeWidth={1 / zoomLevel}
+              strokeWidth={2 / zoomLevel}
+              strokeDasharray="4"
               style={{ pointerEvents: 'none' }}
             />
           )}
