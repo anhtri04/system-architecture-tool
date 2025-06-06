@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { Calculator, ArrowRight, Trash2, Menu } from 'lucide-react';
+import { Calculator, ArrowRight, Trash2, Menu, ZoomIn, ZoomOut, Download, Upload, MoreVertical } from 'lucide-react';
 import ComponentPalette from '../components/ComponentPalette.jsx';
 import ConnectionsList from '../components/ConnectionsList.jsx';
 import PropertiesPanel from '../components/PropertiesPanel.jsx';
@@ -34,8 +34,11 @@ const Home = () => {
   const [connectionMode, setConnectionMode] = useState(false);
   const [connectionStart, setConnectionStart] = useState(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [zoomLevel, setZoomLevel] = useState(1);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const whiteboardRef = useRef(null);
   const nextIdRef = useRef(1);
+  const toolbarHeight = 56; // Fixed toolbar height in pixels
 
   const addComponent = (type) => {
     const newComponent = {
@@ -83,6 +86,7 @@ const Home = () => {
     (e, component) => {
       e.preventDefault();
       e.stopPropagation();
+      console.log('Mouse down on component:', component.id);
 
       if (connectionMode) {
         if (!connectionStart) {
@@ -95,9 +99,13 @@ const Home = () => {
         return;
       }
 
-      const rect = whiteboardRef.current.getBoundingClientRect();
-      const offsetX = e.clientX - rect.left - component.x;
-      const offsetY = e.clientY - rect.top - component.y;
+      const rect = whiteboardRef.current?.getBoundingClientRect();
+      if (!rect) {
+        console.error('Whiteboard ref not attached');
+        return;
+      }
+      const offsetX = (e.clientX - rect.left - component.x) / zoomLevel;
+      const offsetY = (e.clientY - rect.top - component.y) / zoomLevel;
 
       if (e.ctrlKey) {
         setSelectedComponents((prev) =>
@@ -122,8 +130,8 @@ const Home = () => {
                   return {
                     ...acc,
                     [id]: {
-                      x: e.clientX - rect.left - comp.x,
-                      y: e.clientY - rect.top - comp.y,
+                      x: (e.clientX - rect.left - comp.x) / zoomLevel,
+                      y: (e.clientY - rect.top - comp.y) / zoomLevel,
                     },
                   };
                 },
@@ -134,29 +142,31 @@ const Home = () => {
       }
       setSelectedConnection(null);
     },
-    [connectionMode, connectionStart, selectedComponents, components]
+    [connectionMode, connectionStart, selectedComponents, components, zoomLevel]
   );
 
   const handleMouseMove = useCallback(
     (e) => {
       if (draggedItems.length === 0) return;
 
-      const rect = whiteboardRef.current.getBoundingClientRect();
+      const rect = whiteboardRef.current?.getBoundingClientRect();
+      if (!rect) return;
+
       setComponents((prev) =>
         prev.map((comp) => {
           if (!draggedItems.includes(comp.id)) return comp;
           const offset = dragOffsets[comp.id];
-          const newX = e.clientX - rect.left - offset.x;
-          const newY = e.clientY - rect.top - offset.y;
+          const newX = (e.clientX - rect.left - offset.x * zoomLevel) / zoomLevel;
+          const newY = (e.clientY - rect.top - offset.y * zoomLevel) / zoomLevel;
           return {
             ...comp,
-            x: Math.max(0, Math.min(newX, rect.width - comp.width)),
-            y: Math.max(0, Math.min(newY, rect.height - comp.height)),
+            x: Math.max(0, Math.min(newX, rect.width / zoomLevel - comp.width)),
+            y: Math.max(0, Math.min(newY, rect.height / zoomLevel - comp.height)),
           };
         })
       );
     },
-    [draggedItems, dragOffsets]
+    [draggedItems, dragOffsets, zoomLevel]
   );
 
   const handleMouseUp = useCallback(() => {
@@ -191,7 +201,7 @@ const Home = () => {
       setComponents((prev) => prev.filter((comp) => !selectedComponents.includes(comp.id)));
       setConnections((prev) =>
         prev.filter(
-          (conn) => !selectedComponents.includes(conn.from) && !selectedComponents.includes(comp.to)
+          (conn) => !selectedComponents.includes(conn.from) && !selectedComponents.includes(conn.to)
         )
       );
       setSelectedComponents([]);
@@ -231,94 +241,254 @@ const Home = () => {
     calculateTraffic(components, setComponents, connections, setConnections);
   };
 
+  const handleZoomIn = () => {
+    setZoomLevel((prev) => Math.min(prev + 0.2, 2));
+  };
+
+  const handleZoomOut = () => {
+    setZoomLevel((prev) => Math.max(prev - 0.2, 0.5));
+  };
+
+  const handleDownload = () => {
+    const diagram = { components, connections, nextId: nextIdRef.current };
+    const blob = new Blob([JSON.stringify(diagram, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'system-diagram.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const diagram = JSON.parse(event.target.result);
+        if (!diagram.components || !diagram.connections || !diagram.nextId) {
+          alert('Invalid diagram file');
+          return;
+        }
+        setComponents(diagram.components);
+        setConnections(diagram.connections);
+        nextIdRef.current = diagram.nextId;
+      } catch (err) {
+        alert('Error loading diagram: ' + err.message);
+      }
+    };
+    reader.readAsText(file);
+  };
+
   return (
-    <div className="flex flex-col md:flex-row h-screen">
-      <button
-        className="md:hidden p-4 bg-gray-800 text-white flex items-center gap-2"
-        onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-      >
-        <Menu className="w-5 h-5" />
-        Toggle Sidebar
-      </button>
-      <div
-        className={`w-full md:w-80 bg-white shadow-lg border-r border-gray-200 flex flex-col transition-transform duration-300 ${
-          isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        } md:translate-x-0 absolute md:static h-full z-10`}
-      >
-        <div className="p-4 border-b border-gray-200">
-          <h1 className="text-xl font-bold text-gray-800 flex items-center gap-2">
-            <Calculator className="w-5 h-5" />
-            System Design Tool
-          </h1>
-        </div>
-        <ComponentPalette componentTypes={componentTypes} addComponent={addComponent} />
-        <div className="p-4 border-b border-gray-200">
-          <h3 className="font-semibold text-gray-700 mb-3">Tools</h3>
+    <div className="flex flex-col h-screen w-full">
+      {/* Top Toolbar */}
+      <div className="fixed top-0 left-0 right-0 h-14 bg-white border-b border-gray-200 flex items-center px-4 z-20 shadow-sm">
+        <button
+          className="md:hidden mr-4 p-2 hover:bg-gray-100 rounded"
+          onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+        >
+          <Menu className="w-5 h-5 text-gray-700" />
+        </button>
+        <div className="flex items-center gap-1 hidden md:flex">
           <button
             onClick={() => {
               setConnectionMode(!connectionMode);
               setConnectionStart(null);
             }}
-            className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${
-              connectionMode ? 'bg-green-500 text-white' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
-            }`}
+            className={`p-2 rounded hover:bg-gray-100 ${connectionMode ? 'bg-green-100 text-green-700' : 'text-gray-700'}`}
+            title={connectionMode ? 'Cancel Connection' : 'Add Connection'}
           >
-            <ArrowRight className="w-4 h-4" />
-            {connectionMode ? 'Cancel Connection' : 'Add Connection'}
+            <ArrowRight className="w-5 h-5" />
           </button>
           <button
             onClick={handleCalculateTraffic}
-            className="w-full flex items-center gap-2 px-3 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors mt-2"
+            className="p-2 rounded hover:bg-gray-100 text-gray-700"
+            title="Calculate Traffic"
           >
-            <Calculator className="w-4 h-4" />
-            Calculate Traffic
+            <Calculator className="w-5 h-5" />
           </button>
+          <button
+            onClick={handleZoomIn}
+            className="p-2 rounded hover:bg-gray-100 text-gray-700"
+            title="Zoom In"
+          >
+            <ZoomIn className="w-5 h-5" />
+          </button>
+          <button
+            onClick={handleZoomOut}
+            className="p-2 rounded hover:bg-gray-100 text-gray-700"
+            title="Zoom Out"
+          >
+            <ZoomOut className="w-5 h-5" />
+          </button>
+          <button
+            onClick={handleDownload}
+            className="p-2 rounded hover:bg-gray-100 text-gray-700"
+            title="Download Diagram"
+          >
+            <Download className="w-5 h-5" />
+          </button>
+          <label className="p-2 rounded hover:bg-gray-100 text-gray-700 cursor-pointer">
+            <Upload className="w-5 h-5" />
+            <input type="file" accept=".json" onChange={handleUpload} className="hidden" title="Upload Diagram" />
+          </label>
           {(selectedComponents.length > 0 || selectedConnection) && (
             <button
               onClick={deleteSelected}
-              className="w-full flex items-center gap-2 px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors mt-2"
+              className="p-2 rounded hover:bg-red-100 text-red-700"
+              title={selectedComponents.length > 0 ? `Delete Selected (${selectedComponents.length})` : 'Delete Connection'}
             >
-              <Trash2 className="w-4 h-4" />
-              {selectedComponents.length > 0
-                ? `Delete Selected (${selectedComponents.length})`
-                : 'Delete Connection'}
+              <Trash2 className="w-5 h-5" />
             </button>
           )}
         </div>
-        <ConnectionsList
-          connections={connections}
-          components={components}
-          selectedConnection={selectedConnection}
-          setSelectedConnection={setSelectedConnection}
-          deleteConnection={(id) => {
-            setConnections((prev) => prev.filter((conn) => conn.id !== id));
-            setSelectedConnection(null);
-          }}
-        />
-        <PropertiesPanel
-          selectedComponents={selectedComponents}
-          selectedConnection={selectedConnection}
-          components={components}
-          connections={connections}
-          updateComponentMetric={updateComponentMetric}
-          updateConnectionMetric={updateConnectionMetric}
-        />
+        {/* Mobile Menu */}
+        <div className="md:hidden flex-1 flex justify-end">
+          <button
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+            className="p-2 rounded hover:bg-gray-100 text-gray-700"
+          >
+            <MoreVertical className="w-5 h-5" />
+          </button>
+          {isMobileMenuOpen && (
+            <div className="absolute top-14 right-4 bg-white border border-gray-200 rounded-lg shadow-lg z-30">
+              <button
+                onClick={() => {
+                  setConnectionMode(!connectionMode);
+                  setConnectionStart(null);
+                  setIsMobileMenuOpen(false);
+                }}
+                className={`w-full flex items-center gap-2 px-4 py-2 text-sm ${connectionMode ? 'bg-green-100 text-green-700' : 'text-gray-700'} hover:bg-gray-100`}
+              >
+                <ArrowRight className="w-4 h-4" />
+                {connectionMode ? 'Cancel Connection' : 'Add Connection'}
+              </button>
+              <button
+                onClick={() => {
+                  handleCalculateTraffic();
+                  setIsMobileMenuOpen(false);
+                }}
+                className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+              >
+                <Calculator className="w-4 h-4" />
+                Calculate Traffic
+              </button>
+              <button
+                onClick={() => {
+                  handleZoomIn();
+                  setIsMobileMenuOpen(false);
+                }}
+                className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+              >
+                <ZoomIn className="w-4 h-4" />
+                Zoom In
+              </button>
+              <button
+                onClick={() => {
+                  handleZoomOut();
+                  setIsMobileMenuOpen(false);
+                }}
+                className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+              >
+                <ZoomOut className="w-4 h-4" />
+                Zoom Out
+              </button>
+              <button
+                onClick={() => {
+                  handleDownload();
+                  setIsMobileMenuOpen(false);
+                }}
+                className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+              >
+                <Download className="w-4 h-4" />
+                Download Diagram
+              </button>
+              <label className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 cursor-pointer">
+                <Upload className="w-4 h-4" />
+                Upload Diagram
+                <input
+                  type="file"
+                  accept=".json"
+                  onChange={(e) => {
+                    handleUpload(e);
+                    setIsMobileMenuOpen(false);
+                  }}
+                  className="hidden"
+                />
+              </label>
+              {(selectedComponents.length > 0 || selectedConnection) && (
+                <button
+                  onClick={() => {
+                    deleteSelected();
+                    setIsMobileMenuOpen(false);
+                  }}
+                  className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-700 hover:bg-red-100"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  {selectedComponents.length > 0 ? `Delete Selected (${selectedComponents.length})` : 'Delete Connection'}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       </div>
-      <Whiteboard
-        components={components}
-        connections={connections}
-        componentTypes={componentTypes}
-        whiteboardRef={whiteboardRef}
-        connectionMode={connectionMode}
-        connectionStart={connectionStart}
-        draggedItems={draggedItems}
-        selectedComponents={selectedComponents}
-        selectedConnection={selectedConnection}
-        handleMouseDown={handleMouseDown}
-        handleWhiteboardClick={handleWhiteboardClick}
-        setSelectedComponents={setSelectedComponents}
-        setSelectedConnection={setSelectedConnection}
-      />
+
+      {/* Main Content */}
+      <div className="flex flex-col md:flex-row w-full h-[calc(100vh-56px)]">
+        <div
+          className={`w-full md:w-80 bg-white shadow-lg border-r border-gray-200 flex flex-col transition-transform duration-300 ${
+            isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
+          } md:translate-x-0 absolute md:static h-full z-10`}
+        >
+          <div className="p-4 border-b border-gray-200">
+            <h1 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+              <Calculator className="w-5 h-5" />
+              System Design Tool
+            </h1>
+          </div>
+          <ComponentPalette componentTypes={componentTypes} addComponent={addComponent} />
+          <ConnectionsList
+            connections={connections}
+            components={components}
+            selectedConnection={selectedConnection}
+            setSelectedConnection={setSelectedConnection}
+            deleteConnection={(id) => {
+              setConnections((prev) => prev.filter((conn) => conn.id !== id));
+              setSelectedConnection(null);
+            }}
+          />
+          <PropertiesPanel
+            selectedComponents={selectedComponents}
+            selectedConnection={selectedConnection}
+            components={components}
+            connections={connections}
+            updateComponentMetric={updateComponentMetric}
+            updateConnectionMetric={updateConnectionMetric}
+          />
+        </div>
+        <div className="flex-1 min-w-0 h-full">
+          <Whiteboard
+            components={components}
+            connections={connections}
+            componentTypes={componentTypes}
+            whiteboardRef={whiteboardRef}
+            connectionMode={connectionMode}
+            connectionStart={connectionStart}
+            draggedItems={draggedItems}
+            selectedComponents={selectedComponents}
+            selectedConnection={selectedConnection}
+            handleMouseDown={handleMouseDown}
+            handleWhiteboardClick={handleWhiteboardClick}
+            setSelectedComponents={setSelectedComponents}
+            setSelectedConnection={setSelectedConnection}
+            zoomLevel={zoomLevel}
+            toolbarHeight={toolbarHeight}
+          />
+        </div>
+      </div>
     </div>
   );
 };

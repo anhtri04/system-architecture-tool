@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import SystemComponent from './SystemComponent.jsx';
 import SystemConnection from './SystemConnection.jsx';
 
@@ -16,23 +16,30 @@ const Whiteboard = ({
   handleWhiteboardClick,
   setSelectedComponents,
   setSelectedConnection,
+  zoomLevel,
+  toolbarHeight,
 }) => {
   const [selectionRect, setSelectionRect] = useState(null);
 
+  useEffect(() => {
+    console.log('Whiteboard rendered with', components.length, 'components,', connections.length, 'connections, zoom:', zoomLevel);
+  }, [components, connections, zoomLevel]);
+
   const handleMouseDownOnWhiteboard = useCallback(
     (e) => {
+      console.log('Whiteboard mouse down at', e.clientX, e.clientY);
       if (e.target === whiteboardRef.current && !connectionMode) {
         const rect = whiteboardRef.current.getBoundingClientRect();
         setSelectionRect({
-          startX: e.clientX - rect.left,
-          startY: e.clientY - rect.top,
-          endX: e.clientX - rect.left,
-          endY: e.clientY - rect.top,
+          startX: (e.clientX - rect.left) / zoomLevel,
+          startY: (e.clientY - rect.top) / zoomLevel,
+          endX: (e.clientX - rect.left) / zoomLevel,
+          endY: (e.clientY - rect.top) / zoomLevel,
         });
       }
       handleWhiteboardClick(e);
     },
-    [whiteboardRef, connectionMode, handleWhiteboardClick]
+    [whiteboardRef, connectionMode, handleWhiteboardClick, zoomLevel]
   );
 
   const handleMouseMove = useCallback(
@@ -41,11 +48,11 @@ const Whiteboard = ({
       const rect = whiteboardRef.current.getBoundingClientRect();
       setSelectionRect((prev) => ({
         ...prev,
-        endX: e.clientX - rect.left,
-        endY: e.clientY - rect.top,
+        endX: (e.clientX - rect.left) / zoomLevel,
+        endY: (e.clientY - rect.top) / zoomLevel,
       }));
     },
-    [selectionRect, whiteboardRef]
+    [selectionRect, whiteboardRef, zoomLevel]
   );
 
   const handleMouseUp = useCallback(() => {
@@ -69,22 +76,25 @@ const Whiteboard = ({
         })
         .map((comp) => comp.id);
 
+      console.log('Selected components via rectangle:', selected);
       setSelectedComponents(selected);
       setSelectionRect(null);
     }
   }, [selectionRect, components, setSelectedComponents]);
 
   return (
-    <div className="flex-1 relative overflow-auto">
+    <div className="flex-1 min-w-0 min-h-full bg-gray-100 relative overflow-auto">
       <div
         ref={whiteboardRef}
-        className="w-full h-full relative bg-white select-none min-h-screen"
+        className="w-full h-full relative bg-white select-none"
         onMouseDown={handleMouseDownOnWhiteboard}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         style={{
-          backgroundImage: `radial-gradient(circle, #e5e7eb 1px, transparent 1px)`,
-          backgroundSize: '20px 20px',
+          transform: `scale(${zoomLevel})`,
+          transformOrigin: 'top left',
+          backgroundImage: `radial-gradient(circle, #e5e7eb ${1 / zoomLevel}px, transparent ${1 / zoomLevel}px)`,
+          backgroundSize: `${20 / zoomLevel}px ${20 / zoomLevel}px`,
         }}
       >
         <svg className="absolute inset-0 w-full h-full" style={{ zIndex: 0 }}>
@@ -113,7 +123,7 @@ const Whiteboard = ({
               height={Math.abs(selectionRect.endY - selectionRect.startY)}
               fill="rgba(59, 130, 246, 0.2)"
               stroke="#3b82f6"
-              strokeWidth="1"
+              strokeWidth={1 / zoomLevel}
               style={{ pointerEvents: 'none' }}
             />
           )}
